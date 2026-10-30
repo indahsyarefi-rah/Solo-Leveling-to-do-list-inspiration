@@ -315,3 +315,142 @@ test('an already completed cardio session suppresses its approved reminder', asy
   await page.clock.runFor(35_000);
   await expect(reminderDeliveries(page)).resolves.toEqual([]);
 });
+
+async function openAcademic(page: Page) {
+  await page.getByRole('button', { name: 'Atur jadwal kuliah', exact: true }).click();
+  return page.getByRole('dialog', { name: 'Atur jadwal kuliah', exact: true });
+}
+
+async function approveAgenda(page: Page, regenerate = false) {
+  await page
+    .getByRole('button', { name: regenerate ? 'Buat usulan baru' : 'Tinjau usulan', exact: true })
+    .click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Setujui jadwal', exact: true })
+    .click();
+}
+
+test('editable semesters migrate legacy data and apply only from the chosen date', async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date('2026-11-02T08:00:00+07:00') });
+  await startJourney(page);
+  await page.getByRole('switch', { name: 'Mode PMS' }).click();
+  await page.getByRole('checkbox', { name: 'Core pagi', exact: true }).click();
+  await page.getByRole('button', { name: '+250 ml', exact: true }).click();
+  await page.getByRole('button', { name: 'Jadwal', exact: true }).click();
+  await approveAgenda(page);
+  const originalAgenda = await page.getByRole('list', { name: 'Agenda harian' }).innerText();
+  await page.evaluate(() => {
+    const cache = JSON.parse(localStorage.getItem('iris:journey:v1:device')!);
+    cache.state.version = 1;
+    delete cache.state.academicSchedules;
+    delete cache.state.academicExceptions;
+    localStorage.setItem('iris:journey:v1:device', JSON.stringify(cache));
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Jadwal', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Agenda harian' })).toHaveText(originalAgenda, {
+    useInnerText: true,
+  });
+  let dialog = await openAcademic(page);
+  await dialog.getByLabel('Nama jadwal / semester').fill('Semester Genap');
+  await dialog.getByLabel('Berlaku mulai').fill('2026-11-09');
+  await dialog.getByLabel('Mulai kuliah Senin 1', { exact: true }).fill('09:00');
+  await dialog.getByLabel('Selesai kuliah Senin 1', { exact: true }).fill('12:00');
+  await dialog.getByRole('button', { name: 'Simpan jadwal kuliah', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Agenda harian' })).toHaveText(originalAgenda, {
+    useInnerText: true,
+  });
+  dialog = await openAcademic(page);
+  await dialog.getByRole('button', { name: 'Edit', exact: true }).click();
+  await dialog.getByLabel('Berlaku mulai').fill('2026-11-16');
+  await dialog.getByRole('button', { name: 'Simpan jadwal kuliah', exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole('progressbar', { name: 'EXP Hunter', exact: true })).toHaveAttribute(
+    'aria-valuenow',
+    '10',
+  );
+  const saved = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state,
+  );
+  expect(saved.version).toBe(2);
+  expect(saved.days['2026-11-02'].waterMl).toBe(250);
+  expect(saved.days['2026-11-02'].scheduleApproved).toBe(true);
+  expect(saved.academicSchedules).toHaveLength(1);
+  expect(saved.academicSchedules[0].effectiveFrom).toBe('2026-11-16');
+  await page.clock.setSystemTime(new Date('2026-11-16T08:00:00+07:00'));
+  await page.reload();
+  await page.getByRole('button', { name: 'Jadwal', exact: true }).click();
+  await expect(page.getByText('Semester Genap', { exact: true })).toBeVisible();
+  const agenda = page.getByRole('list', { name: 'Agenda harian' });
+  await expect(agenda).toContainText('09:00 – 12:00');
+  await expect(agenda).not.toContainText('10:00 – 17:00');
+  await expectNoHorizontalOverflow(page);
+});
+
+test('temporary holidays preserve approved agendas until new proposals are accepted', async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date('2026-11-02T08:00:00+07:00') });
+  await startJourney(page);
+  await page.getByRole('button', { name: 'Jadwal', exact: true }).click();
+  await approveAgenda(page);
+  const agenda = page.getByRole('list', { name: 'Agenda harian' });
+  await expect(agenda).toContainText('10:00 – 17:00');
+  let dialog = await openAcademic(page);
+  await dialog.getByRole('button', { name: 'Libur & tanggal khusus', exact: true }).click();
+  await dialog.getByLabel('Sampai', { exact: true }).fill('2026-11-03');
+  await dialog.getByLabel('Keterangan', { exact: true }).fill('Libur kampus');
+  await dialog.getByRole('button', { name: 'Simpan pengecualian', exact: true }).click();
+  await expect(agenda).toContainText('10:00 – 17:00');
+  await page.getByRole('button', { name: 'Buat usulan baru', exact: true }).click();
+  await expect(page.getByRole('dialog').getByLabel('Kegiatan 2', { exact: true })).not.toHaveValue(
+    'Kuliah',
+  );
+  await page.getByRole('button', { name: 'Tutup dialog', exact: true }).click();
+  await expect(agenda).toContainText('10:00 – 17:00');
+  await approveAgenda(page, true);
+  await expect(agenda).not.toContainText('Kuliah');
+  await page.reload();
+  await page.getByRole('button', { name: 'Jadwal', exact: true }).click();
+  await expect(agenda).not.toContainText('Kuliah');
+  dialog = await openAcademic(page);
+  await dialog.getByRole('button', { name: 'Libur & tanggal khusus', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Hapus pengecualian 2026-11-02', exact: true }).click();
+  await expect(agenda).not.toContainText('Kuliah');
+  await approveAgenda(page, true);
+  await expect(agenda).toContainText('10:00 – 17:00');
+  dialog = await openAcademic(page);
+  await dialog.getByRole('button', { name: 'Libur & tanggal khusus', exact: true }).click();
+  await dialog
+    .getByRole('combobox', { name: 'Jenis pengecualian', exact: true })
+    .selectOption('custom');
+  await dialog.getByLabel('Keterangan', { exact: true }).fill('Kuliah pengganti');
+  await dialog.getByLabel('Mulai kuliah khusus 1', { exact: true }).fill('14:00');
+  await dialog.getByLabel('Selesai kuliah khusus 1', { exact: true }).fill('15:00');
+  await dialog.getByRole('button', { name: 'Simpan pengecualian', exact: true }).click();
+  await approveAgenda(page, true);
+  await expect(agenda).toContainText('14:00 – 15:00');
+  await expect(agenda).not.toContainText('10:00 – 17:00');
+  await expectNoHorizontalOverflow(page);
+});
+
+test('overlapping weekly classes are rejected without saving partial edits', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-02T08:00:00+07:00') });
+  await startJourney(page);
+  await page.getByRole('button', { name: 'Jadwal', exact: true }).click();
+  const dialog = await openAcademic(page);
+  await dialog.getByRole('button', { name: 'Tambah sesi Senin', exact: true }).click();
+  await dialog.getByLabel('Mulai kuliah Senin 2', { exact: true }).fill('16:00');
+  await dialog.getByLabel('Selesai kuliah Senin 2', { exact: true }).fill('18:00');
+  await dialog.getByRole('button', { name: 'Simpan jadwal kuliah', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('tidak boleh bertumpang tindih');
+  const count = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state.academicSchedules.length,
+  );
+  expect(count).toBe(0);
+  await expectNoHorizontalOverflow(page);
+});

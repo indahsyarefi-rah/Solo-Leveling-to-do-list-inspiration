@@ -1,0 +1,196 @@
+.academic-summary {
+  padding: 19px;
+  margin-bottom: 22px;
+}
+.academic-summary-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.academic-summary-heading > svg {
+  color: var(--cyan);
+}
+.academic-summary-heading > div {
+  flex: 1;
+}
+.academic-summary-heading h3 {
+  font-family: Georgia, serif;
+  font-size: 22px;
+  font-weight: 400;
+}
+.academic-summary-heading p {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.academic-week-preview {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 17px;
+}
+.academic-week-preview > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #0a2134;
+  border-radius: 6px;
+  padding: 10px 7px;
+  text-align: center;
+}
+.academic-week-preview strong {
+  font-size: 11px;
+  font-weight: 500;
+}
+.academic-week-preview span {
+  font-size: 10px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.academic-summary > small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 12px;
+}
+.academic-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.academic-editor > .notice {
+  margin: 0;
+}
+.academic-week {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.academic-day > summary {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+}
+.academic-day > summary strong {
+  font-size: 12px;
+  min-width: 45px;
+}
+.academic-day > summary span {
+  font-size: 11px;
+  color: var(--muted);
+  flex: 1;
+}
+.academic-day-body {
+  padding: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+.academic-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.academic-block {
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.academic-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr 36px;
+  gap: 10px;
+  align-items: end;
+}
+.academic-times .icon-button {
+  width: 36px;
+  height: 44px;
+}
+.academic-blocks > .text-button {
+  align-self: start;
+}
+.academic-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.academic-saved h3 {
+  font-family: Georgia, serif;
+  font-size: 21px;
+  font-weight: 400;
+  margin-bottom: 5px;
+}
+.academic-saved > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  background: #0a2235;
+  border-radius: 6px;
+}
+.academic-saved > div > div {
+  flex: 1;
+  min-width: 0;
+}
+.academic-saved strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.academic-saved small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 4px;
+}
+.schedule-replan {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.schedule-replan .btn {
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .academic-summary {
+    padding: 16px;
+  }
+  .academic-summary-heading {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .academic-summary-heading h3 {
+    font-size: 21px;
+  }
+  .academic-summary-heading > .btn {
+    width: 100%;
+  }
+  .academic-week-preview {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .academic-week-preview span {
+    font-size: 10px;
+  }
+  .academic-editor > .choice-group button {
+    font-size: 11px;
+    padding: 10px 7px;
+  }
+  .academic-day > summary span {
+    font-size: 10px;
+  }
+  .academic-times {
+    gap: 7px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
+  }
+  .academic-times .icon-button {
+    width: 30px;
+  }
+  .schedule-replan {
+    width: 100%;
+  }
+  .academic-saved h3 {
+    font-size: 19px;
+  }
+}

@@ -1,3 +1,9 @@
+import {
+  classesAt,
+  parseAcademicConfig,
+  type AcademicSchedule,
+  type AcademicException,
+} from './academic';
 import { basePath } from './paths';
 
 /** Pure domain selectors. Rewards are derived from facts, never incremented counters. */
@@ -58,7 +64,9 @@ export interface DayLog {
   cardioTargetMinutes: number;
 }
 export interface AppState {
-  version: 1;
+  version: 2;
+  academicSchedules: AcademicSchedule[];
+  academicExceptions: Record<string, AcademicException>;
   startedAt: string | null;
   pms: boolean;
   settings: Settings;
@@ -193,7 +201,9 @@ export function dateDiff(start: string, end: string): number {
 
 export function createState(): AppState {
   return {
-    version: 1,
+    version: 2,
+    academicSchedules: [],
+    academicExceptions: {},
     startedAt: null,
     pms: false,
     settings: {
@@ -327,7 +337,9 @@ export function getQuests(state: AppState, date: string): Quest[] {
       weekday === 0 || weekday === 6
         ? 'Program pemula · catat sesi latihanmu'
         : log.pms
-          ? 'Sebelum kuliah · program pemula'
+          ? classesAt(state, date).length
+            ? 'Sebelum kuliah · program pemula'
+            : 'Hari tanpa kuliah · program pemula'
           : 'Sebelum berbuka · waktu perlu dikonfirmasi';
     push(
       'gym',
@@ -619,7 +631,7 @@ export function validateState(input: unknown): AppState | null {
   try {
     if (
       !record(input) ||
-      input.version !== 1 ||
+      (input.version !== 1 && input.version !== 2) ||
       !(input.startedAt === null || validDate(input.startedAt)) ||
       typeof input.pms !== 'boolean' ||
       !record(input.settings) ||
@@ -627,6 +639,13 @@ export function validateState(input: unknown): AppState | null {
       !record(input.challenges)
     )
       return null;
+    if (
+      input.version === 2 &&
+      (input.academicSchedules === undefined || input.academicExceptions === undefined)
+    )
+      return null;
+    const academic = parseAcademicConfig(input);
+    if (!academic) return null;
     const settings = input.settings;
     const settingsTarget =
       settings.cardioTargetMinutes === undefined ? 30 : settings.cardioTargetMinutes;
@@ -643,7 +662,8 @@ export function validateState(input: unknown): AppState | null {
     if (Object.keys(input.days).length > 20_000 || Object.keys(input.challenges).length > 1200)
       return null;
     const state: AppState = {
-      version: 1,
+      version: 2,
+      ...academic,
       startedAt: input.startedAt,
       pms: input.pms,
       settings: {
@@ -830,33 +850,30 @@ export function proposeSchedule(
     items.push({ id, title, start: formatClock(start), end: formatClock(end), kind, locked });
     blocked.push({ start, end });
   };
-  const classTime =
-    weekday === 4
-      ? { start: 420, end: 840 }
-      : weekday >= 1 && weekday <= 5
-        ? { start: 600, end: 1020 }
-        : null;
-  if (classTime) {
-    if (commute > 0)
-      add(
-        'commute-out',
-        'Perjalanan ke kampus',
-        Math.max(0, classTime.start - commute),
-        classTime.start,
-        'personal',
-        true,
-      );
-    add('class', 'Kuliah', classTime.start, classTime.end, 'class', true);
-    if (commute > 0)
-      add(
-        'commute-home',
-        'Perjalanan pulang',
-        classTime.end,
-        Math.min(1439, classTime.end + commute),
-        'personal',
-        true,
-      );
-  }
+  const classes = classesAt(state, date);
+  const classTime = classes.length
+    ? { start: clock(classes[0].start), end: clock(classes.at(-1)!.end) }
+    : null;
+  if (classTime && commute > 0 && classTime.start > 0)
+    add(
+      'commute-out',
+      'Perjalanan ke kampus',
+      Math.max(0, classTime.start - commute),
+      classTime.start,
+      'personal',
+      true,
+    );
+  for (const block of classes)
+    add(`class-${block.id}`, block.title, clock(block.start), clock(block.end), 'class', true);
+  if (classTime && commute > 0 && classTime.end < 1439)
+    add(
+      'commute-home',
+      'Perjalanan pulang',
+      classTime.end,
+      Math.min(1439, classTime.end + commute),
+      'personal',
+      true,
+    );
   if (sleep <= wake)
     return {
       items,
@@ -868,15 +885,10 @@ export function proposeSchedule(
       'Jam kuliah/perjalanan berada di luar waktu aktif pilihanmu. Tinjau jam bangun dan tidur.',
     );
 
-  // Preserve manually locked personal commitments; generated commute entries
+  // Preserve user-entered personal commitments; generated commute entries
   // are rebuilt from settings to avoid duplicating them on each proposal.
   for (const item of getDay(state, date).schedule) {
-    if (
-      !item.locked ||
-      item.kind !== 'personal' ||
-      ['commute-out', 'commute-home'].includes(item.id)
-    )
-      continue;
+    if (item.kind !== 'personal' || ['commute-out', 'commute-home'].includes(item.id)) continue;
     const interval = { start: clock(item.start), end: clock(item.end) };
     if (blocked.some((block) => overlaps(interval, block))) {
       warnings.push(
@@ -884,7 +896,7 @@ export function proposeSchedule(
       );
       continue;
     }
-    add(item.id, item.title, interval.start, interval.end, item.kind, true);
+    add(item.id, item.title, interval.start, interval.end, item.kind, item.locked);
   }
   const free = (start: number, end: number): Interval[] => {
     const result: Interval[] = [];

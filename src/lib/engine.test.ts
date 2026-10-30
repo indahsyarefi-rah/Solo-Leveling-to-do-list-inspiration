@@ -1,3 +1,4 @@
+import { academicScheduleAt, classesAt, defaultAcademicWeek, parseClassBlocks } from './academic';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -577,4 +578,153 @@ test('missing history before any known log defaults to non-PMS and 30 while stor
   assert.equal(getDay(state, '2026-11-04').pms, false);
   assert.equal(getDay(state, '2026-11-04').cardioTargetMinutes, 45);
   assert.equal(JSON.stringify(state.days), original);
+});
+
+test('legacy version1 snapshots migrate without losing activity or changing default classes', () => {
+  const state = started('2026-11-02', true);
+  finishRequired(state, '2026-11-02');
+  const legacy = JSON.parse(JSON.stringify(state));
+  legacy.version = 1;
+  delete legacy.academicSchedules;
+  delete legacy.academicExceptions;
+  const restored = validateState(legacy)!;
+  assert.ok(restored);
+  assert.equal(restored.version, 2);
+  assert.deepEqual(restored.days, state.days);
+  assert.equal(getStats(restored, '2026-11-02').xp, getStats(state, '2026-11-02').xp);
+  assert.equal(classesAt(restored, '2026-11-02')[0].start, '10:00');
+  assert.equal(classesAt(restored, '2026-11-05')[0].start, '07:00');
+  assert.deepEqual(classesAt(restored, '2026-11-07'), []);
+  assert.equal(validateState({ ...state, version: 3 }), null);
+});
+
+test('semester changes apply on their effective date and preserve previous dates', () => {
+  const state = started('2026-11-02', true);
+  const week = defaultAcademicWeek();
+  week.mon = [{ id: 'a', title: 'Semester baru', start: '08:00', end: '12:00' }];
+  state.academicSchedules = [
+    { id: 'semester2', name: 'Semester 2', effectiveFrom: '2026-11-09', week },
+  ];
+  assert.equal(classesAt(state, '2026-11-02')[0].start, '10:00');
+  assert.equal(classesAt(state, '2026-11-09')[0].start, '08:00');
+  assert.equal(academicScheduleAt(state, '2026-11-09').name, 'Semester 2');
+  assert.equal(classesAt(state, '2026-11-16')[0].end, '12:00');
+  assert.ok(
+    proposeSchedule(state, '2026-11-09').items.some(
+      (i) => i.kind === 'class' && i.title === 'Semester baru',
+    ),
+  );
+});
+
+test('holiday exceptions remove classes and commute only on selected dates', () => {
+  const state = started();
+  state.academicExceptions['2026-11-02'] = { label: 'Libur kampus', classes: [] };
+  const holiday = proposeSchedule(state, '2026-11-02');
+  assert.equal(holiday.items.filter((i) => i.kind === 'class').length, 0);
+  assert.equal(holiday.items.filter((i) => i.id.startsWith('commute-')).length, 0);
+  assert.ok(holiday.items.some((i) => i.kind === 'gym'));
+  assert.ok(holiday.items.some((i) => i.kind === 'cardio'));
+  assert.equal(classesAt(state, '2026-11-09')[0].start, '10:00');
+  delete state.academicExceptions['2026-11-02'];
+  assert.equal(classesAt(state, '2026-11-02')[0].start, '10:00');
+});
+
+test('special-date hours override a semester without altering its recurring week', () => {
+  const state = started('2026-11-02', true);
+  const week = defaultAcademicWeek();
+  week.mon = [{ id: 'regular', title: 'Kuliah reguler', start: '09:00', end: '13:00' }];
+  state.academicSchedules = [{ id: 'term', name: 'Semester', effectiveFrom: '2026-11-02', week }];
+  state.academicExceptions['2026-11-02'] = {
+    label: 'Kuliah pengganti',
+    classes: [{ id: 'special', title: 'Seminar', start: '14:00', end: '16:00' }],
+  };
+  assert.equal(classesAt(state, '2026-11-02')[0].title, 'Seminar');
+  assert.equal(classesAt(state, '2026-11-09')[0].title, 'Kuliah reguler');
+  const restored = validateState(JSON.parse(JSON.stringify(state)))!;
+  assert.deepEqual(restored.academicSchedules, state.academicSchedules);
+  assert.deepEqual(restored.academicExceptions, state.academicExceptions);
+});
+
+test('multiple daily classes and saved personal activities keep nonoverlapping proposals', () => {
+  const state = started('2026-11-02', true);
+  const week = defaultAcademicWeek();
+  week.mon = [
+    { id: 'morning', title: 'Kuliah pagi', start: '09:00', end: '11:00' },
+    { id: 'afternoon', title: 'Kuliah sore', start: '14:00', end: '16:00' },
+  ];
+  state.academicSchedules = [{ id: 'split', name: 'Dua sesi', effectiveFrom: '2026-11-02', week }];
+  day(state, '2026-11-02').schedule = [
+    {
+      id: 'lunch',
+      title: 'Janji siang',
+      start: '12:00',
+      end: '12:30',
+      kind: 'personal',
+      locked: false,
+    },
+  ];
+  const original = JSON.stringify(state);
+  const result = proposeSchedule(state, '2026-11-02');
+  assert.equal(result.items.filter((i) => i.kind === 'class').length, 2);
+  assert.equal(result.items.filter((i) => i.id.startsWith('commute-')).length, 2);
+  assert.ok(result.items.some((i) => i.id === 'lunch' && i.start === '12:00' && !i.locked));
+  assert.equal(result.items.find((i) => i.id === 'commute-out')!.start, '08:30');
+  assert.equal(result.items.find((i) => i.id === 'commute-home')!.start, '16:00');
+  assert.ok(result.items.find((i) => i.kind === 'gym')!.end <= '08:30');
+  for (let i = 1; i < result.items.length; i++)
+    assert.ok(result.items[i - 1].end <= result.items[i].start);
+  assert.equal(JSON.stringify(state), original);
+});
+
+test('academic changes do not replace an approved agenda, logged activity or earned EXP', () => {
+  const state = started('2026-11-02', true);
+  finishRequired(state, '2026-11-02');
+  state.days['2026-11-02'].schedule = proposeSchedule(state, '2026-11-02').items;
+  state.days['2026-11-02'].scheduleApproved = true;
+  const original = JSON.stringify(state.days);
+  const xp = getStats(state, '2026-11-02').xp;
+  state.academicExceptions['2026-11-02'] = { label: 'Libur mendadak', classes: [] };
+  assert.equal(
+    proposeSchedule(state, '2026-11-02').items.filter((i) => i.kind === 'class').length,
+    0,
+  );
+  assert.equal(JSON.stringify(state.days), original);
+  assert.equal(getStats(state, '2026-11-02').xp, xp);
+  assert.equal(state.days['2026-11-02'].scheduleApproved, true);
+});
+
+test('academic imports reject overlaps, ambiguous semesters and invalid exception dates', () => {
+  const state = started();
+  const week = defaultAcademicWeek();
+  week.mon.push({ id: 'collision', title: 'Benturan', start: '16:00', end: '18:00' });
+  state.academicSchedules = [
+    { id: 'invalid', name: 'Semester', effectiveFrom: '2026-11-02', week },
+  ];
+  assert.equal(validateState(state), null);
+  week.mon = [{ id: 'reversed', title: 'Jam salah', start: '12:00', end: '09:00' }];
+  assert.equal(validateState(state), null);
+  week.mon = [];
+  state.academicSchedules.push({
+    id: 'duplicate',
+    name: 'Ambigu',
+    effectiveFrom: '2026-11-02',
+    week,
+  });
+  assert.equal(validateState(state), null);
+  state.academicSchedules = [];
+  state.academicExceptions['2026-02-30'] = { label: 'Invalid', classes: [] };
+  assert.equal(validateState(state), null);
+  assert.equal(
+    parseClassBlocks([{ id: 'bad', title: 'Kuliah', start: '24:00', end: '25:00' }]),
+    null,
+  );
+});
+
+test('version2 snapshots require academic fields instead of silently erasing configuration', () => {
+  const state = createState();
+  const broken = JSON.parse(JSON.stringify(state));
+  delete broken.academicSchedules;
+  assert.equal(validateState(broken), null);
+  broken.version = 1;
+  assert.ok(validateState(broken));
 });

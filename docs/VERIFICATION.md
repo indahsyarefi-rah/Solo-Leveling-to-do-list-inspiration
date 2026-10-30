@@ -21,3 +21,11 @@ Tidak ada konfigurasi proyek Supabase/Google pada lingkungan ini, sehingga login
 Pengiriman notifikasi saat aplikasi tertutup belum diimplementasikan. Tidak ada deployment publik yang dilakukan. Lihat SUPABASE.md dan NOTIFICATIONS.md untuk pengaktifan dan batas kemampuan.
 
 Tangkapan layar selama pengujian memakai konteks browser sementara. Aktivitas uji tersebut tidak dimasukkan sebagai data awal aplikasi.
+
+## Pembaruan jadwal kuliah
+
+Pembaruan ini menambahkan jadwal mingguan yang dapat diedit, beberapa sesi per hari, versi semester bertanggal mulai, serta libur/jam khusus sementara.
+
+- 37 pengujian domain lulus, termasuk migrasi snapshot versi 1 ke 2, tanggal efektif semester, pengecualian libur, benturan sesi, perjalanan kampus, kegiatan pribadi, dan preservasi EXP/agenda yang sudah disetujui.
+- 22 skenario browser desktop/ponsel telah diverifikasi. Dalam run awal 18 lulus; empat kasus baru terhenti karena pencocokan teks/label pada test runner. Setelah locator diperbaiki, empat kasus terkait lulus pada run terpisah tanpa mengubah perilaku produk.
+- Kasus baru memeriksa perubahan semester, pemindahan tanggal mulai jadwal mendatang, migrasi data browser lama, libur dua hari, kuliah pengganti, pemulihan rutinitas mingguan, penolakan sesi tumpang tindih, dan persetujuan ulang agenda.

@@ -33,6 +33,7 @@ npm start
 - Level global, tiga atribut, streak, statistik tujuh hari, dan lima achievement.
 - Challenge bulanan 12 sesi (minimal 30 menit; maksimal satu hitungan/hari), bonus 200 EXP satu kali. Jika sisa bulan tidak cukup, pendaftaran diarahkan secara jelas ke bulan berikutnya.
 - Usulan jadwal mempertimbangkan kuliah, perjalanan, jam bangun/tidur, dan pola puasa. Jadwal hanya diterapkan setelah persetujuan; konflik waktu ditampilkan.
+- Jadwal kuliah dapat diedit per hari dan memiliki beberapa sesi, versi semester dengan tanggal mulai, serta pengecualian libur/jam khusus. Agenda yang sudah disetujui tetap dipertahankan sampai usulan baru disetujui. Lihat [panduan jadwal](docs/SCHEDULES.md).
 - Ekspor/impor cadangan JSON dengan validasi, pengingat browser, dan metadata pemasangan PWA.
 
 ## Google dan database lintas perangkat

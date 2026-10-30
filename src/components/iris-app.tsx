@@ -1,6 +1,7 @@
 'use client';
 
 import { assetPath } from '@/lib/paths';
+import AcademicEditor, { AcademicSummary } from './academic-editor';
 
 import Image from 'next/image';
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -81,6 +82,7 @@ type Modal =
   | 'gym'
   | 'challenge'
   | 'notifications'
+  | 'academic'
   | 'schedule'
   | 'conflict'
   | 'training'
@@ -607,12 +609,17 @@ function ScheduleEditor({
       }
       if (
         !item.locked &&
-        sorted.some(
-          (c) =>
-            c.kind === 'class' &&
-            minutes(item.start) < minutes(c.end) + state.settings.commuteMinutes &&
-            minutes(item.end) > minutes(c.start) - state.settings.commuteMinutes,
-        )
+        (() => {
+          const classes = sorted.filter((c) => c.kind === 'class');
+          if (!classes.length) return false;
+          const first = minutes(classes[0].start),
+            last = minutes(classes.at(-1)!.end);
+          return (
+            (minutes(item.start) < first &&
+              minutes(item.end) > first - state.settings.commuteMinutes) ||
+            (minutes(item.end) > last && minutes(item.start) < last + state.settings.commuteMinutes)
+          );
+        })()
       ) {
         setError('Sisakan waktu perjalanan sebelum dan sesudah kuliah.');
         return;
@@ -676,7 +683,7 @@ function ScheduleEditor({
           </div>
           {item.locked ? (
             <small className="muted">
-              <ShieldCheck size={13} /> Jadwal kuliah tetap
+              <ShieldCheck size={13} /> Ubah jam kuliah melalui “Atur jadwal kuliah”.
             </small>
           ) : (
             <button
@@ -1410,6 +1417,7 @@ export default function IrisApp() {
                 alt=""
               />
             </div>
+            <AcademicSummary state={state} date={date} edit={() => setModal('academic')} />
             <div className="section-heading">
               <h2>{day.scheduleApproved ? 'Jadwal disetujui' : 'Usulan hari ini'}</h2>
               <span className="status-pill">
@@ -1431,11 +1439,12 @@ export default function IrisApp() {
               </div>
             ) : (
               <>
-                <div className="agenda">
+                <div className="agenda" role="list" aria-label="Agenda harian">
                   {(day.scheduleApproved ? day.schedule : planned.items).map((item) => (
                     <div
                       key={item.id}
                       className={`agenda-item panel ${item.locked ? 'fixed' : ''}`}
+                      role="listitem"
                     >
                       <span className="agenda-marker" />
                       {item.kind === 'class' ? (
@@ -1454,7 +1463,7 @@ export default function IrisApp() {
                         <h3>{item.title}</h3>
                         <p>
                           {item.locked
-                            ? 'Kuliah · waktu tetap'
+                            ? 'Waktu tetap · dari jadwal kuliah'
                             : day.scheduleApproved
                               ? 'Jadwal yang kamu setujui'
                               : 'Usulan · belum diterapkan'}
@@ -1502,9 +1511,21 @@ export default function IrisApp() {
                     {day.scheduleApproved ? 'Ubah jadwal' : 'Tinjau usulan'}
                     <ArrowRight size={17} />
                   </button>
+                  {day.scheduleApproved && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setProposal(planned.items);
+                        setModal('schedule');
+                      }}
+                    >
+                      Buat usulan baru
+                    </button>
+                  )}
                   <small>
                     <Info size={14} />
-                    Tugas tidak dipindah ke hari lain tanpa persetujuan.
+                    Perubahan jadwal kuliah tidak mengubah agenda ini otomatis. Tinjau usulan baru
+                    untuk menerapkannya. Tugas tidak dipindah ke hari lain tanpa persetujuan.
                   </small>
                 </div>
                 <details className="missed-days panel">
@@ -1834,18 +1855,20 @@ export default function IrisApp() {
                       ? 'Catat makanan'
                       : modal === 'challenge'
                         ? 'Challenge bulanan'
-                        : modal === 'schedule'
-                          ? 'Tinjau jadwal hari ini'
-                          : modal === 'conflict'
-                            ? 'Perubahan dari perangkat lain'
-                            : modal === 'training'
-                              ? 'Usulan progres latihan'
-                              : modal === 'core'
-                                ? 'Core pagi'
-                                : 'Pengingat Iris'
+                        : modal === 'academic'
+                          ? 'Atur jadwal kuliah'
+                          : modal === 'schedule'
+                            ? 'Tinjau jadwal hari ini'
+                            : modal === 'conflict'
+                              ? 'Perubahan dari perangkat lain'
+                              : modal === 'training'
+                                ? 'Usulan progres latihan'
+                                : modal === 'core'
+                                  ? 'Core pagi'
+                                  : 'Pengingat Iris'
           }
           close={close}
-          wide={modal === 'schedule'}
+          wide={modal === 'schedule' || modal === 'academic'}
         >
           {modal === 'start' && (
             <div className="journey-start">
@@ -2149,6 +2172,50 @@ export default function IrisApp() {
           )}
           {modal === 'challenge' && (
             <ChallengePanel stats={stats} state={state} date={date} onJoin={joinChallenge} />
+          )}
+          {modal === 'academic' && (
+            <AcademicEditor
+              state={state}
+              date={date}
+              saveWeekly={(schedule) => {
+                update((draft) => {
+                  draft.academicSchedules = [
+                    ...draft.academicSchedules.filter(
+                      (s) => s.effectiveFrom !== schedule.effectiveFrom && s.id !== schedule.id,
+                    ),
+                    schedule,
+                  ].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+                });
+                setModal(null);
+                notify(
+                  'Jadwal kuliah tersimpan. Agenda yang sudah disetujui tetap dipertahankan; tinjau usulan baru untuk menerapkannya.',
+                );
+              }}
+              saveException={(from, to, entry) => {
+                update((draft) => {
+                  for (let key = from; key <= to; key = addDays(key, 1)) {
+                    if (entry) draft.academicExceptions[key] = structuredClone(entry);
+                    else delete draft.academicExceptions[key];
+                  }
+                });
+                setModal(null);
+                notify(
+                  entry
+                    ? 'Pengecualian tersimpan. Jadwal harian yang sudah disetujui tidak diubah otomatis.'
+                    : 'Pengecualian dihapus. Usulan kembali mengikuti rutinitas mingguan.',
+                );
+              }}
+              removeWeekly={(id) => {
+                update((draft) => {
+                  draft.academicSchedules = draft.academicSchedules.filter(
+                    (s) => s.id !== id || s.effectiveFrom < date,
+                  );
+                });
+                notify(
+                  'Jadwal mendatang dihapus. Riwayat dan agenda yang sudah disetujui tetap aman.',
+                );
+              }}
+            />
           )}
           {modal === 'schedule' && (
             <ScheduleEditor
