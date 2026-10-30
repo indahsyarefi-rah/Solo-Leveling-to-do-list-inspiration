@@ -1,3 +1,15 @@
+import {
+  ACHIEVEMENTS,
+  TRIALS,
+  shards,
+  bookPages,
+  restDay,
+  studyDue,
+  adventureMetrics,
+  trialFinishedAt,
+  canJoinTrial,
+} from './long-game';
+import { IELTS_STAGES, JAPANESE_STAGES, lessonAt } from './learning';
 import { academicScheduleAt, classesAt, defaultAcademicWeek, parseClassBlocks } from './academic';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -589,13 +601,13 @@ test('legacy version1 snapshots migrate without losing activity or changing defa
   delete legacy.academicExceptions;
   const restored = validateState(legacy)!;
   assert.ok(restored);
-  assert.equal(restored.version, 2);
+  assert.equal(restored.version, 3);
   assert.deepEqual(restored.days, state.days);
   assert.equal(getStats(restored, '2026-11-02').xp, getStats(state, '2026-11-02').xp);
   assert.equal(classesAt(restored, '2026-11-02')[0].start, '10:00');
   assert.equal(classesAt(restored, '2026-11-05')[0].start, '07:00');
   assert.deepEqual(classesAt(restored, '2026-11-07'), []);
-  assert.equal(validateState({ ...state, version: 3 }), null);
+  assert.equal(validateState({ ...state, version: 4 }), null);
 });
 
 test('semester changes apply on their effective date and preserve previous dates', () => {
@@ -727,4 +739,328 @@ test('version2 snapshots require academic fields instead of silently erasing con
   assert.equal(validateState(broken), null);
   broken.version = 1;
   assert.ok(validateState(broken));
+});
+
+function giveShards(state: AppState, date: string, minimum = 100) {
+  for (const badge of ACHIEVEMENTS) {
+    state.adventure.claims[badge.id] = { date, shards: badge.reward, title: badge.title };
+    if (shards(state) >= minimum) break;
+  }
+}
+function bookFixture(state: AppState, date = '2026-11-02') {
+  state.adventure.books.push({
+    id: 'book',
+    title: 'Buku latihan',
+    author: 'Penulis',
+    school: 'rune',
+    totalPages: 200,
+    startedAt: date,
+    finishedAt: null,
+    reflection: '',
+    application: '',
+  });
+}
+
+test('long-term catalog contains80 stable milestones through730days and24months', () => {
+  assert.equal(ACHIEVEMENTS.length, 80);
+  assert.equal(new Set(ACHIEVEMENTS.map((a) => a.id)).size, 80);
+  const stats = getStats(createState(), '2026-11-02');
+  assert.equal(stats.badges.length, 80);
+  assert.ok(stats.badges.every((b) => !b.unlocked));
+  assert.equal(ACHIEVEMENTS.find((a) => a.metric === 'days' && a.target === 730)?.target, 730);
+  assert.ok(ACHIEVEMENTS.some((a) => a.metric === 'months' && a.target === 24));
+  assert.ok(TRIALS.some((t) => t.km === 5 && t.activity === 'run'));
+});
+
+test('legacy v2 migration retains quests, academic schedules and EXP while adding empty adventure', () => {
+  const state = started('2026-11-02', true);
+  finishRequired(state, '2026-11-02');
+  state.academicExceptions['2026-11-03'] = { label: 'Libur', classes: [] };
+  const legacy = JSON.parse(JSON.stringify(state));
+  legacy.version = 2;
+  delete legacy.adventure;
+  const parsed = validateState(legacy)!;
+  assert.ok(parsed);
+  assert.equal(parsed.version, 3);
+  assert.deepEqual(parsed.days, state.days);
+  assert.deepEqual(parsed.academicExceptions, state.academicExceptions);
+  assert.equal(getStats(parsed, '2026-11-02').xp, getStats(state, '2026-11-02').xp);
+  assert.equal(parsed.adventure.study.startDate, null);
+  const invalid = JSON.parse(JSON.stringify(state));
+  delete invalid.adventure;
+  assert.equal(validateState(invalid), null);
+});
+
+test('language starts prospectively every2days and requires both20+10minutes for one award', () => {
+  const state = started('2026-11-02', true);
+  state.adventure.study.startDate = '2026-11-04';
+  assert.ok(!getQuests(state, '2026-11-02').some((q) => q.id === 'language'));
+  assert.ok(studyDue(state, '2026-11-04'));
+  assert.ok(!studyDue(state, '2026-11-05'));
+  assert.ok(studyDue(state, '2026-11-06'));
+  state.adventure.studyLogs['2026-11-04'] = {
+    ielts: 20,
+    japanese: 0,
+    ieltsNote: 'Review',
+    japaneseNote: '',
+  };
+  assert.equal(getStats(state, '2026-11-04').xp, 0);
+  assert.equal(getQuests(state, '2026-11-04').find((q) => q.id === 'language')!.progress, 20);
+  state.adventure.studyLogs['2026-11-04'].japanese = 10;
+  assert.equal(getStats(state, '2026-11-04').xp, 30);
+  state.adventure.studyLogs['2026-11-04'].ielts = 60;
+  assert.equal(getStats(state, '2026-11-04').xp, 30);
+  delete state.adventure.studyLogs['2026-11-04'];
+  assert.equal(getStats(state, '2026-11-04').xp, 0);
+});
+
+test('language proposals fit30minutes around classes without changing prior targets', () => {
+  const state = started('2026-11-02', true);
+  state.adventure.study.startDate = '2026-11-02';
+  const result = proposeSchedule(state, '2026-11-02');
+  const study = result.items.find((i) => i.kind === 'study')!;
+  assert.ok(study);
+  assert.equal(
+    (Date.parse('2026-11-02T' + study.end) - Date.parse('2026-11-02T' + study.start)) / 60000,
+    30,
+  );
+  for (let i = 1; i < result.items.length; i++)
+    assert.ok(result.items[i - 1].end <= result.items[i].start);
+});
+
+test('reading gives15EXP per actual day and book skills require completed pages plus reflection', () => {
+  const state = started('2026-11-02', true);
+  bookFixture(state);
+  state.adventure.readings.push({
+    id: 'read1',
+    bookId: 'book',
+    date: '2026-11-02',
+    minutes: 10,
+    pages: 5,
+    note: 'Insight',
+  });
+  assert.equal(getStats(state, '2026-11-02').xp, 15);
+  state.adventure.readings.push({
+    id: 'read2',
+    bookId: 'book',
+    date: '2026-11-02',
+    minutes: 30,
+    pages: 10,
+    note: 'More',
+  });
+  assert.equal(getStats(state, '2026-11-02').xp, 15);
+  assert.equal(bookPages(state, 'book', '2026-11-02'), 15);
+  state.adventure.books[0].finishedAt = '2026-11-02';
+  assert.equal(validateState(state), null);
+  state.adventure.books[0].reflection = 'Tiga pelajaran yang berguna';
+  state.adventure.books[0].application = 'Satu praktik nyata';
+  state.adventure.readings[1].pages = 195;
+  assert.ok(validateState(state));
+  assert.equal(adventureMetrics(state, '2026-11-02').books, 1);
+});
+
+test('Rest Day skips required targets and streak without granting EXP or a perfect-day bonus', () => {
+  const state = started('2026-11-02', true);
+  finishRequired(state, '2026-11-02');
+  finishRequired(state, '2026-11-04');
+  giveShards(state, '2026-11-02');
+  state.adventure.redemptions.push({
+    id: 'rest',
+    kind: 'rest',
+    label: 'Rest Day',
+    cost: 100,
+    date: '2026-11-02',
+    forDate: '2026-11-03',
+    cancelled: false,
+  });
+  assert.ok(restDay(state, '2026-11-03'));
+  assert.equal(getStats(state, '2026-11-03').todayTarget, 0);
+  assert.equal(getStats(state, '2026-11-03').todayXp, 0);
+  assert.equal(getStats(state, '2026-11-03').streak, 1);
+  const after = getStats(state, '2026-11-04');
+  assert.equal(after.streak, 2);
+  assert.equal(after.xp, 210);
+  assert.ok(getQuests(state, '2026-11-03').every((q) => !q.required));
+  assert.ok(
+    proposeSchedule(state, '2026-11-03').items.every(
+      (i) => !['gym', 'cardio', 'study'].includes(i.kind),
+    ),
+  );
+  assert.equal(after.monthlyCount, 0);
+});
+
+test('claimed crystals are permanent one-time collections and never increase Hunter EXP', () => {
+  const state = started('2026-11-02', true);
+  day(state, '2026-11-02').completions = ['core'];
+  const first = getStats(state, '2026-11-02').badges.find((b) => b.id === 'first-ripple')!;
+  assert.ok(first.unlocked);
+  state.adventure.claims[first.id] = {
+    date: '2026-11-02',
+    title: first.title,
+    shards: first.reward!,
+  };
+  assert.equal(shards(state), 10);
+  assert.equal(getStats(state, '2026-11-02').xp, 10);
+  day(state, '2026-11-02').completions = [];
+  assert.equal(getStats(state, '2026-11-02').xp, 0);
+  assert.equal(shards(state), 10);
+  assert.ok(getStats(state, '2026-11-02').badges.find((b) => b.id === 'first-ripple')!.unlocked);
+  assert.ok(validateState(state));
+});
+
+test('reward imports reject negative wallets and overlapping rest-voucher dates', () => {
+  const state = started('2026-11-02', true);
+  state.adventure.redemptions.push({
+    id: 'rest1',
+    kind: 'rest',
+    label: 'Rest',
+    cost: 100,
+    date: '2026-11-02',
+    forDate: '2026-11-03',
+    cancelled: false,
+  });
+  assert.equal(validateState(state), null);
+  giveShards(state, '2026-11-02', 250);
+  assert.ok(validateState(state));
+  state.adventure.redemptions.push({
+    id: 'rest2',
+    kind: 'rest',
+    label: 'Rest',
+    cost: 100,
+    date: '2026-11-02',
+    forDate: '2026-11-05',
+    cancelled: false,
+  });
+  assert.equal(validateState(state), null);
+  state.adventure.redemptions[1].forDate = '2026-11-10';
+  assert.ok(validateState(state));
+  state.adventure.redemptions[1].cancelled = true;
+  assert.equal(
+    shards(state),
+    Object.values(state.adventure.claims).reduce((n, c) => n + c.shards, 0) - 100,
+  );
+});
+
+test('varied monthly reading challenge counts unique qualifying days and freezes its reward', () => {
+  const state = started('2026-11-01', true);
+  bookFixture(state, '2026-11-01');
+  state.challenges['2026-11'] = {
+    kind: 'reading',
+    joinedAt: '2026-11-01',
+    target: 12,
+    rewardXp: 200,
+  };
+  for (let i = 0; i < 12; i++)
+    state.adventure.readings.push({
+      id: 'r' + i,
+      bookId: 'book',
+      date: addDays('2026-11-01', i),
+      minutes: 10,
+      pages: 1,
+      note: '',
+    });
+  const stats = getStats(state, '2026-11-12');
+  assert.equal(stats.monthlyCount, 12);
+  assert.equal(stats.monthlyComplete, true);
+  assert.equal(stats.xp, 12 * 15 + 200);
+  state.adventure.readings.push({
+    id: 'extra',
+    bookId: 'book',
+    date: '2026-11-12',
+    minutes: 20,
+    pages: 2,
+    note: '',
+  });
+  assert.equal(getStats(state, '2026-11-12').xp, stats.xp);
+  state.adventure.readings = state.adventure.readings.filter((r) => r.date !== '2026-11-01');
+  assert.equal(getStats(state, '2026-11-12').monthlyComplete, false);
+});
+
+test('nonstop trials require enrollment and explicit continuous-session evidence', () => {
+  const state = started('2026-11-02', true);
+  day(state, '2026-11-02').cardio = {
+    activity: 'run',
+    minutes: 15,
+    distanceKm: 2,
+    incline: null,
+    intensity: 'light',
+  };
+  assert.equal(trialFinishedAt(state, 'run-2', '2026-11-02'), null);
+  state.adventure.trials['run-2'] = { joinedAt: '2026-11-02' };
+  assert.equal(trialFinishedAt(state, 'run-2', '2026-11-02'), null);
+  day(state, '2026-11-02').cardio!.continuous = true;
+  assert.equal(trialFinishedAt(state, 'run-2', '2026-11-02'), '2026-11-02');
+  assert.equal(getStats(state, '2026-11-02').xp, 150);
+  assert.equal(getStats(state, '2026-11-03').xp, 150);
+  day(state, '2026-11-02').cardio!.continuous = false;
+  assert.equal(getStats(state, '2026-11-02').xp, 0);
+});
+
+test('trial eligibility requires level, prior gate and logged cardio readiness', () => {
+  const state = started('2026-11-02', true);
+  assert.equal(canJoinTrial(state, 'run-1', 5, '2026-11-08'), false);
+  for (let i = 0; i < 5; i++)
+    day(state, addDays('2026-11-02', i)).cardio = {
+      activity: 'walk',
+      minutes: 30,
+      distanceKm: 2,
+      incline: null,
+      intensity: 'light',
+    };
+  assert.equal(canJoinTrial(state, 'run-1', 4, '2026-11-08'), false);
+  assert.equal(canJoinTrial(state, 'run-1', 5, '2026-11-08'), true);
+  assert.equal(canJoinTrial(state, 'run-2', 12, '2026-11-08'), false);
+  state.adventure.trials['run-1'] = { joinedAt: '2026-11-02' };
+  day(state, '2026-11-07').cardio = {
+    activity: 'run',
+    minutes: 12,
+    distanceKm: 1,
+    incline: null,
+    intensity: 'medium',
+    continuous: true,
+  };
+  assert.equal(canJoinTrial(state, 'run-2', 12, '2026-11-08'), true);
+});
+
+test('curricula cover365 paired sessions with beginner Japanese and advanced IELTS refresh', () => {
+  assert.equal(
+    IELTS_STAGES.reduce((n, s) => n + s.sessions, 0),
+    365,
+  );
+  assert.equal(
+    JAPANESE_STAGES.reduce((n, s) => n + s.sessions, 0),
+    365,
+  );
+  assert.match(lessonAt('japanese', 0).name, /Hiragana/);
+  assert.match(lessonAt('ielts', 0).name, /Return/);
+  assert.match(lessonAt('ielts', 80, 'academic').variant, /overview/);
+  assert.equal(lessonAt('japanese', 200, 'academic', 0).index, 0);
+  assert.equal(lessonAt('ielts', 500).index, IELTS_STAGES.length - 1);
+});
+
+test('standalone swim trial evidence does not replace daily cardio or auto-complete30minutes', () => {
+  const state = started('2026-11-02', true);
+  day(state, '2026-11-02').cardio = {
+    activity: 'walk',
+    minutes: 30,
+    distanceKm: 2,
+    incline: null,
+    intensity: 'light',
+  };
+  state.adventure.trials['swim-100'] = { joinedAt: '2026-11-02' };
+  state.adventure.trialAttempts['swim-100'] = {
+    date: '2026-11-02',
+    minutes: 5,
+    distanceKm: 0.1,
+    continuous: true,
+  };
+  assert.ok(validateState(state));
+  assert.equal(getStats(state, '2026-11-02').xp, 125);
+  assert.equal(state.days['2026-11-02'].cardio!.activity, 'walk');
+  state.adventure.trialAttempts['swim-100'].continuous = false;
+  assert.equal(getStats(state, '2026-11-02').xp, 25);
+  state.days['2026-11-02'].cardio = null;
+  state.adventure.trialAttempts['swim-100'].continuous = true;
+  assert.equal(getStats(state, '2026-11-02').xp, 100);
+  assert.equal(getQuests(state, '2026-11-02').find((q) => q.id === 'cardio')!.done, false);
 });

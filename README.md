@@ -30,10 +30,11 @@ npm start
 - Catatan air menuju 2.000 ml dan makanan dengan batas pilihan pengguna 1.700 kkal. Reward diberikan untuk pencatatan, bukan makan semakin sedikit.
 - Core pagi opsional dengan panduan gerakan awal; shalat sunnah opsional di luar Mode PMS.
 - EXP berasal dari fakta aktivitas: tidak berlipat saat reload, tidak ada denda EXP, dan koreksi aktivitas membatalkan reward terkait.
-- Level global, tiga atribut, streak, statistik tujuh hari, dan lima achievement.
-- Challenge bulanan 12 sesi (minimal 30 menit; maksimal satu hitungan/hari), bonus 200 EXP satu kali. Jika sisa bulan tidak cukup, pendaftaran diarahkan secara jelas ke bulan berikutnya.
+- Level global, tiga atribut, streak, statistik tujuh hari, dan 80 achievement bertingkat.
+- Enam pilihan challenge bulanan: cardio, gym, renang, membaca, belajar bahasa, dan keseimbangan aktivitas. Target dan bonus dibekukan saat bergabung. Jika sisa bulan tidak cukup, pendaftaran diarahkan ke bulan berikutnya.
 - Usulan jadwal mempertimbangkan kuliah, perjalanan, jam bangun/tidur, dan pola puasa. Jadwal hanya diterapkan setelah persetujuan; konflik waktu ditampilkan.
 - Jadwal kuliah dapat diedit per hari dan memiliki beberapa sesi, versi semester dengan tanggal mulai, serta pengecualian libur/jam khusus. Agenda yang sudah disetujui tetap dipertahankan sampai usulan baru disetujui. Lihat [panduan jadwal](docs/SCHEDULES.md).
+- Emerald Shards untuk Rest Day/self reward, Trial Gates berdasarkan level, Spellbook dari buku, dan jalur IELTS Academic + Jepang 20/10 menit setiap dua hari. Lihat [rancangan dan panduan jangka panjang](docs/LONG_TERM.md).
 - Ekspor/impor cadangan JSON dengan validasi, pengingat browser, dan metadata pemasangan PWA.
 
 ## Google dan database lintas perangkat
@@ -57,7 +58,7 @@ Database memakai snapshot JSONB per pengguna, RLS, dan revisi atomik. Konflik an
 - Notifikasi dipicu selama aplikasi terbuka dan izin browser tersedia. Belum ada backend Web Push untuk pengiriman saat aplikasi tertutup. Lihat [panduan notifikasi](docs/NOTIFICATIONS.md).
 - Waktu shalat/Maghrib tidak diambil dari API. Quest ibadah dicentang manual; waktu Bandung perlu dikonfirmasi. Batas 17.15 pada usulan saat puasa merupakan jendela perencanaan, bukan waktu berbuka.
 - Tanggal lampau ditampilkan sebagai riwayat; aktivitas dari antarmuka diubah pada hari berjalan.
-- Belum ada integrasi kalender eksternal, estimasi kalori otomatis, timer olahraga, atau deployment otomatis.
+- Belum ada integrasi kalender eksternal, estimasi kalori otomatis, atau timer olahraga. Deployment GitHub Pages berjalan otomatis setelah perubahan masuk ke `main`.
 
 ## Pemeriksaan
 

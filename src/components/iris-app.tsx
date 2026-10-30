@@ -1,6 +1,15 @@
 'use client';
 
 import { assetPath } from '@/lib/paths';
+import { restDay, MONTHLY, hunterTitle, type MonthlyKind } from '@/lib/long-game';
+import {
+  SpellbookView,
+  LanguagePanel,
+  RewardsView,
+  TrialsView,
+  MonthlyPanel,
+  monthlyStart,
+} from './adventure-views';
 import AcademicEditor, { AcademicSummary } from './academic-editor';
 
 import Image from 'next/image';
@@ -41,6 +50,9 @@ import {
   Waves,
   Sparkles,
   Settings2,
+  BookOpen,
+  Gift,
+  Compass,
 } from 'lucide-react';
 import {
   todayKey,
@@ -71,9 +83,17 @@ import {
   showReminder,
   registerServiceWorker,
 } from '@/lib/reminders';
-import { ProgressView, AchievementsView, ChallengePanel } from './progress-views';
+import { ProgressView, AchievementsView } from './progress-views';
 
-type Tab = 'today' | 'schedule' | 'progress' | 'achievements' | 'profile';
+type Tab =
+  | 'today'
+  | 'schedule'
+  | 'progress'
+  | 'achievements'
+  | 'profile'
+  | 'spellbook'
+  | 'trials'
+  | 'rewards';
 type Modal =
   | 'start'
   | 'water'
@@ -82,6 +102,8 @@ type Modal =
   | 'gym'
   | 'challenge'
   | 'notifications'
+  | 'language'
+  | 'reading'
   | 'academic'
   | 'schedule'
   | 'conflict'
@@ -93,6 +115,9 @@ const NAV = [
   { id: 'schedule', label: 'Jadwal', icon: CalendarDays },
   { id: 'progress', label: 'Progres', icon: ChartNoAxesColumnIncreasing },
   { id: 'achievements', label: 'Achievement', icon: Trophy },
+  { id: 'spellbook', label: 'Spellbook', icon: BookOpen },
+  { id: 'trials', label: 'Trials', icon: Compass },
+  { id: 'rewards', label: 'Reward', icon: Gift },
   { id: 'profile', label: 'Profil', icon: UserRound },
 ] as const;
 const number = (value: number) => new Intl.NumberFormat('id-ID').format(value);
@@ -183,6 +208,7 @@ function Dialog({
 }
 
 function QuestIcon({ id }: { id: string }) {
+  if (id === 'language' || id === 'reading') return <BookOpen />;
   if (id === 'gym') return <Dumbbell />;
   if (id === 'cardio' || id === 'alternative') return <Footprints />;
   if (id === 'water') return <Droplet />;
@@ -230,15 +256,20 @@ function CardioForm({
 }) {
   const [activity, setActivity] = useState<Activity>(initial?.activity ?? 'walk');
   const [minutes, setMinutes] = useState(initial?.minutes ?? target);
-  const [distance, setDistance] = useState(initial?.distanceKm?.toString() ?? '');
+  const [distance, setDistance] = useState(
+    initial?.distanceKm == null
+      ? ''
+      : String(initial.distanceKm * (initial.activity === 'swim' ? 1000 : 1)),
+  );
   const [incline, setIncline] = useState(initial?.incline?.toString() ?? '');
   const [intensity, setIntensity] = useState<CardioSession['intensity']>(
     initial?.intensity ?? 'light',
   );
+  const [continuous, setContinuous] = useState(initial?.continuous ?? false);
   const [error, setError] = useState('');
   function submit(e: FormEvent) {
     e.preventDefault();
-    const distanceKm = distance === '' ? null : Number(distance);
+    const distanceKm = distance === '' ? null : Number(distance) / (activity === 'swim' ? 1000 : 1);
     const inclineValue =
       incline === '' || !['walk', 'run'].includes(activity) ? null : Number(incline);
     if (
@@ -253,7 +284,7 @@ function CardioForm({
       setError('Periksa durasi, jarak, dan incline yang dimasukkan.');
       return;
     }
-    save({ activity, minutes, distanceKm, incline: inclineValue, intensity });
+    save({ activity, minutes, distanceKm, incline: inclineValue, intensity, continuous });
   }
   return (
     <form onSubmit={submit} className="form-stack">
@@ -265,7 +296,13 @@ function CardioForm({
       </div>
       <label>
         Aktivitas
-        <select value={activity} onChange={(e) => setActivity(e.target.value as Activity)}>
+        <select
+          value={activity}
+          onChange={(e) => {
+            setActivity(e.target.value as Activity);
+            setDistance('');
+          }}
+        >
           {Object.entries(ACTIVITY_LABELS).map(([key, label]) => (
             <option key={key} value={key}>
               {label}
@@ -295,12 +332,12 @@ function CardioForm({
               aria-label="Jarak"
               type="number"
               min={0}
-              max={500}
-              step="0.01"
+              max={activity === 'swim' ? 50000 : 500}
+              step={activity === 'swim' ? 1 : 0.01}
               value={distance}
               onChange={(e) => setDistance(e.target.value)}
             />
-            <span>km</span>
+            <span>{activity === 'swim' ? 'm' : 'km'}</span>
           </span>
         </label>
       </div>
@@ -321,6 +358,18 @@ function CardioForm({
           </span>
         </label>
       )}
+      <label className="inline-check">
+        <input
+          type="checkbox"
+          checked={continuous}
+          onChange={(e) => setContinuous(e.target.checked)}
+        />
+        Tanpa jeda (non-stop)
+      </label>
+      <p className="form-footnote">
+        Centang hanya jika sesi benar-benar dilakukan tanpa jeda. Ini catatan mandiri untuk Trial
+        Gates.
+      </p>
       <fieldset>
         <legend>Intensitas</legend>
         <div className="choice-group">
@@ -786,13 +835,19 @@ export default function IrisApp() {
     previousLevel.current = stats.level;
   }, [ready, stats.level]);
   useEffect(() => {
-    if (!state.settings.notificationsEnabled || !day.scheduleApproved) return;
+    if (!state.settings.notificationsEnabled || !day.scheduleApproved || restDay(state, date))
+      return;
     const remind = () => {
       const now = timeNow();
       day.schedule
-        .filter((item) => ['gym', 'cardio'].includes(item.kind) && item.start === now)
+        .filter((item) => ['gym', 'cardio', 'study'].includes(item.kind) && item.start === now)
         .forEach((item) => {
-          if (getQuests(state, date).some((quest) => quest.kind === item.kind && quest.done))
+          if (
+            getQuests(state, date).some(
+              (quest) =>
+                quest.kind === (item.kind === 'study' ? 'language' : item.kind) && quest.done,
+            )
+          )
             return;
           const key = `iris-reminder:${date}:${item.id}:${item.start}`;
           try {
@@ -882,25 +937,39 @@ export default function IrisApp() {
     );
     setModal(null);
   }
-  function joinChallenge() {
+  function joinChallenge(kind: MonthlyKind = 'cardio') {
     if (!started) {
       setModal('start');
       return;
     }
-    const nextMonth = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 1))
-      .toISOString()
-      .slice(0, 7);
-    const lastDay = Number(addDays(nextMonth + '-01', -1).slice(8));
-    const startDate = lastDay - Number(date.slice(8)) + 1 < 12 ? nextMonth + '-01' : date;
+    if (
+      stats.level < MONTHLY[kind].level ||
+      (kind === 'study' && !state.adventure.study.startDate)
+    ) {
+      notify('Lengkapi syarat challenge terlebih dahulu.');
+      return;
+    }
+    const startDate = monthlyStart(state, kind, date),
+      definition = MONTHLY[kind];
     update((draft) => {
-      draft.challenges[startDate.slice(0, 7)] ??= { target: 12, joinedAt: startDate };
+      draft.challenges[startDate.slice(0, 7)] ??= {
+        target: definition.target,
+        joinedAt: startDate,
+        kind,
+        rewardXp: definition.xp,
+      };
     });
-    notify(
-      startDate === date
-        ? 'Challenge Emerald Current dimulai. Target: 12 sesi bulan ini.'
-        : 'Challenge dijadwalkan mulai ' + dateLabel(startDate) + '.',
-    );
+    notify(definition.name + ' disimpan mulai ' + dateLabel(startDate) + '.');
   }
+  const adventureCommit = (recipe: (draft: AppState) => void, message: string) => {
+    update((draft) => {
+      if (draft.startedAt)
+        draft.days[date] ??= emptyDay(draft.pms, draft.settings.cardioTargetMinutes);
+      recipe(draft);
+    });
+    notify(message);
+  };
+
   function downloadBackup() {
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }),
@@ -1044,7 +1113,13 @@ export default function IrisApp() {
                     ? 'Perjalanan Iris'
                     : tab === 'achievements'
                       ? 'Achievement Iris'
-                      : 'Profil Hunter'}
+                      : tab === 'spellbook'
+                        ? 'Spellbook Iris'
+                        : tab === 'trials'
+                          ? 'Trial Gates'
+                          : tab === 'rewards'
+                            ? 'Reward Iris'
+                            : 'Profil Hunter'}
             </h1>
             <p className="header-date">{dateLabel(date)}</p>
           </div>
@@ -1120,7 +1195,7 @@ export default function IrisApp() {
                 <div className="hunter-name">
                   {state.settings.name.toUpperCase()} <span>✧</span>
                 </div>
-                <p className="hunter-title">Emerald Tide Initiate</p>
+                <p className="hunter-title">{hunterTitle(stats.level)}</p>
                 <div className="hunter-level">
                   <div className="level-number">
                     <span>LEVEL</span>
@@ -1200,6 +1275,15 @@ export default function IrisApp() {
               </button>
             </div>
             <section className="quests-section">
+              {restDay(state, date) && (
+                <div className="notice rest-banner">
+                  <Gift size={21} />
+                  <p>
+                    <strong>Rest Day aktif.</strong> Semua quest opsional. Streak tetap terlindungi;
+                    tidak ada EXP atau hitungan challenge otomatis.
+                  </p>
+                </div>
+              )}
               <div className="section-heading">
                 <h2>
                   Daily Quests <span>✧</span>
@@ -1389,7 +1473,7 @@ export default function IrisApp() {
                   <small>
                     {stats.monthlyJoined
                       ? `${stats.monthlyCount} / ${stats.monthlyTarget} sesi`
-                      : 'Emerald Current'}
+                      : 'Lihat pilihan'}
                   </small>
                   <ChevronRight size={18} />
                 </button>
@@ -1576,6 +1660,20 @@ export default function IrisApp() {
 
         {tab === 'progress' && (
           <>
+            <div className="adventure-shortcuts">
+              <button className="btn btn-secondary" onClick={() => navigate('spellbook')}>
+                <BookOpen size={17} />
+                Spellbook & Bahasa
+              </button>
+              <button className="btn btn-secondary" onClick={() => navigate('trials')}>
+                <Compass size={17} />
+                Trial Gates
+              </button>
+              <button className="btn btn-secondary" onClick={() => navigate('rewards')}>
+                <Gift size={17} />
+                Reward
+              </button>
+            </div>
             {canProgress && (
               <div className="progression-callout panel">
                 <Sparkles size={22} />
@@ -1599,7 +1697,18 @@ export default function IrisApp() {
             />
           </>
         )}
-        {tab === 'achievements' && <AchievementsView stats={stats} />}
+        {tab === 'achievements' && (
+          <AchievementsView stats={stats} onRewards={() => navigate('rewards')} />
+        )}
+        {tab === 'spellbook' && (
+          <SpellbookView state={state} stats={stats} date={date} commit={adventureCommit} />
+        )}
+        {tab === 'trials' && (
+          <TrialsView state={state} stats={stats} date={date} commit={adventureCommit} />
+        )}
+        {tab === 'rewards' && (
+          <RewardsView state={state} stats={stats} date={date} commit={adventureCommit} />
+        )}
         {tab === 'profile' && (
           <section className="profile-view">
             <div className="profile-card panel">
@@ -1612,7 +1721,7 @@ export default function IrisApp() {
               <div>
                 <p className="eyebrow">YOUR HUNTER IDENTITY</p>
                 <h2>{state.settings.name}</h2>
-                <p className="emerald-text">Emerald Tide Initiate</p>
+                <p className="emerald-text">{hunterTitle(stats.level)}</p>
                 <span className="status-pill">
                   Level {String(stats.level).padStart(2, '0')} · {number(stats.xp)} EXP
                 </span>
@@ -1799,17 +1908,19 @@ export default function IrisApp() {
         </footer>
       </main>
       <nav className="mobile-nav" aria-label="Navigasi ponsel">
-        {NAV.filter((n) => n.id !== 'achievements').map((item) => (
-          <button
-            key={item.id}
-            className={tab === item.id ? 'active' : ''}
-            aria-current={tab === item.id ? 'page' : undefined}
-            onClick={() => navigate(item.id)}
-          >
-            <item.icon size={21} />
-            <span>{item.label}</span>
-          </button>
-        ))}
+        {NAV.filter((n) => ['today', 'schedule', 'progress', 'profile'].includes(n.id)).map(
+          (item) => (
+            <button
+              key={item.id}
+              className={tab === item.id ? 'active' : ''}
+              aria-current={tab === item.id ? 'page' : undefined}
+              onClick={() => navigate(item.id)}
+            >
+              <item.icon size={21} />
+              <span>{item.label}</span>
+            </button>
+          ),
+        )}
       </nav>
       {toast && (
         <div className="toast" role="status">
@@ -1855,20 +1966,29 @@ export default function IrisApp() {
                       ? 'Catat makanan'
                       : modal === 'challenge'
                         ? 'Challenge bulanan'
-                        : modal === 'academic'
-                          ? 'Atur jadwal kuliah'
-                          : modal === 'schedule'
-                            ? 'Tinjau jadwal hari ini'
-                            : modal === 'conflict'
-                              ? 'Perubahan dari perangkat lain'
-                              : modal === 'training'
-                                ? 'Usulan progres latihan'
-                                : modal === 'core'
-                                  ? 'Core pagi'
-                                  : 'Pengingat Iris'
+                        : modal === 'language'
+                          ? 'Belajar bahasa'
+                          : modal === 'reading'
+                            ? 'Spellbook Iris'
+                            : modal === 'academic'
+                              ? 'Atur jadwal kuliah'
+                              : modal === 'schedule'
+                                ? 'Tinjau jadwal hari ini'
+                                : modal === 'conflict'
+                                  ? 'Perubahan dari perangkat lain'
+                                  : modal === 'training'
+                                    ? 'Usulan progres latihan'
+                                    : modal === 'core'
+                                      ? 'Core pagi'
+                                      : 'Pengingat Iris'
           }
           close={close}
-          wide={modal === 'schedule' || modal === 'academic'}
+          wide={
+            modal === 'schedule' ||
+            modal === 'academic' ||
+            modal === 'language' ||
+            modal === 'reading'
+          }
         >
           {modal === 'start' && (
             <div className="journey-start">
@@ -2171,7 +2291,19 @@ export default function IrisApp() {
             </div>
           )}
           {modal === 'challenge' && (
-            <ChallengePanel stats={stats} state={state} date={date} onJoin={joinChallenge} />
+            <MonthlyPanel stats={stats} state={state} date={date} onJoin={joinChallenge} />
+          )}
+          {modal === 'language' && (
+            <LanguagePanel state={state} stats={stats} date={date} commit={adventureCommit} />
+          )}
+          {modal === 'reading' && (
+            <SpellbookView
+              readingOnly
+              state={state}
+              stats={stats}
+              date={date}
+              commit={adventureCommit}
+            />
           )}
           {modal === 'academic' && (
             <AcademicEditor

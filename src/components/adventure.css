@@ -1,0 +1,416 @@
+.adventure-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.adventure-intro {
+  padding: 23px;
+}
+.adventure-intro h2 {
+  font-size: 27px;
+  margin: 8px 0 12px;
+}
+.adventure-intro > p:not(.eyebrow) {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.adventure-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.adventure-form {
+  padding: 23px;
+}
+.adventure-form > h2 {
+  font-size: 25px;
+  margin-bottom: 15px;
+}
+.adventure-form > h3 {
+  font-family: Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+  margin-bottom: 10px;
+}
+.adventure-form > p {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.adventure-form textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+.adventure-subtabs button {
+  padding: 13px;
+}
+.lesson-card {
+  padding: 22px;
+}
+.lesson-card h3 {
+  font-family: Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  margin: 8px 0;
+}
+.lesson-card > p:not(.eyebrow) {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.lesson-task {
+  padding: 15px;
+  background: #0a283c;
+  border-left: 2px solid var(--cyan);
+  margin: 15px 0;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.lesson-card > small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.lesson-checkpoint {
+  margin-top: 14px !important;
+  color: #afdcca !important;
+}
+.adventure-roadmap > summary,
+.adventure-new-book > summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 17px 20px;
+}
+.adventure-roadmap > summary svg:last-child,
+.adventure-new-book > summary svg:last-child {
+  margin-left: auto;
+}
+.adventure-roadmap > p,
+.adventure-roadmap > section {
+  padding: 0 20px 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.adventure-roadmap section h3 {
+  color: var(--cyan);
+  margin-bottom: 10px;
+}
+.adventure-roadmap section > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.adventure-roadmap strong {
+  color: var(--text);
+}
+.adventure-new-book > form {
+  padding: 0 20px 20px;
+}
+.adventure-book-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.adventure-book-heading > svg {
+  color: var(--cyan);
+}
+.adventure-book-heading h3 {
+  font-size: 21px;
+  font-family: Georgia, serif;
+  font-weight: 400;
+}
+.adventure-book-heading p {
+  font-size: 12px;
+}
+.adventure-meter {
+  height: 8px;
+  background: #15324a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.adventure-meter > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #218fa7, #66dfbb);
+  transition: width 0.3s;
+}
+.adventure-reading-history > summary {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 12px 0;
+}
+.adventure-reading-history > div {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+  font-size: 11px;
+}
+.adventure-reading-history > div > span {
+  flex: 1;
+}
+.adventure-reading-history small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.adventure-wallet {
+  padding: 23px;
+  display: flex;
+  gap: 23px;
+  align-items: center;
+  border-color: #397f75;
+}
+.adventure-wallet > svg {
+  color: var(--emerald);
+  filter: drop-shadow(0 0 10px #62e0be44);
+}
+.adventure-wallet p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.adventure-wallet strong {
+  display: block;
+  font-family: Georgia, serif;
+  font-size: 43px;
+  font-weight: 400;
+  color: var(--emerald);
+}
+.adventure-wallet small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.reward-history {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.reward-history > div {
+  flex: 1;
+}
+.reward-history strong {
+  font-size: 13px;
+}
+.reward-history small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.trial-card {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.trial-card > svg {
+  color: var(--cyan);
+}
+.trial-card > .status-pill {
+  align-self: start;
+}
+.trial-card h3 {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: 23px;
+}
+.trial-card p {
+  font-size: 13px;
+  line-height: 1.8;
+}
+.trial-card small {
+  font-size: 11px;
+  line-height: 1.7;
+}
+.trial-card .btn {
+  margin-top: auto;
+}
+.trial-card.is-complete {
+  border-color: #4c9c82;
+  background: #0a302f80;
+}
+.unlock-roadmap {
+  display: flex;
+  flex-direction: column;
+  margin-top: 18px;
+}
+.unlock-roadmap > div {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 0;
+  border-top: 1px solid var(--line-soft);
+  opacity: 0.65;
+}
+.unlock-roadmap > div.is-open {
+  opacity: 1;
+}
+.unlock-roadmap > div > span {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  color: var(--cyan);
+  font-size: 12px;
+  min-width: 82px;
+}
+.unlock-roadmap strong {
+  font-size: 13px;
+}
+.unlock-roadmap small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.monthly-counter {
+  position: relative;
+  width: 230px;
+  height: 230px;
+  margin: 10px auto;
+  display: grid;
+  place-items: center;
+}
+.monthly-counter > strong {
+  z-index: 1;
+  font-family: Georgia, serif;
+  font-size: 36px;
+  font-weight: 400;
+  text-align: center;
+}
+.monthly-counter small {
+  display: block;
+  color: var(--muted);
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+}
+.monthly-options {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.monthly-option {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.monthly-option h3 {
+  font-family: Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+}
+.monthly-option p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.monthly-option strong {
+  font-size: 13px;
+  color: var(--gold);
+}
+.monthly-option small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.adventure-shortcuts {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.rest-banner {
+  border-color: #427d74;
+  background: #103533b3;
+  color: #b7efdd;
+}
+.achievement-filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.achievement-filters label {
+  flex: 1;
+  min-width: 140px;
+}
+.achievement-filters .btn {
+  align-self: end;
+}
+.achievement-reward {
+  font-size: 11px;
+  color: var(--emerald);
+  margin-top: 10px;
+}
+.achievement-load-more {
+  margin: 20px auto;
+  display: flex;
+}
+.sidebar .nav-item {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  margin-bottom: 5px;
+}
+.sidebar-art {
+  min-height: 120px;
+}
+@media (max-width: 700px) {
+  .adventure-grid {
+    grid-template-columns: 1fr;
+  }
+  .adventure-intro,
+  .adventure-form,
+  .lesson-card {
+    padding: 19px;
+  }
+  .adventure-intro h2 {
+    font-size: 25px;
+  }
+  .adventure-form h2 {
+    font-size: 24px;
+  }
+  .adventure-subtabs button {
+    font-size: 11px;
+    padding: 11px 8px;
+  }
+  .adventure-shortcuts > .btn {
+    flex: 1;
+    font-size: 11px;
+    padding: 10px;
+  }
+  .adventure-stack {
+    gap: 15px;
+  }
+  .unlock-roadmap > div {
+    gap: 10px;
+  }
+  .unlock-roadmap strong {
+    font-size: 12px;
+  }
+  .unlock-roadmap small {
+    font-size: 10px;
+  }
+  .reward-history small {
+    font-size: 10px;
+  }
+  .adventure-wallet {
+    padding: 20px;
+  }
+  .trial-card {
+    padding: 19px;
+  }
+  .adventure-stack .field-pair {
+    gap: 10px;
+  }
+}

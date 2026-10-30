@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createState, emptyDay, todayKey } from '../src/lib/engine';
+import { createState, emptyDay, todayKey, addDays, gymType, getStats } from '../src/lib/engine';
 
 type ReminderDelivery = { title: string; body: string; via: 'worker' | 'fallback' };
 
@@ -375,7 +375,7 @@ test('editable semesters migrate legacy data and apply only from the chosen date
   const saved = await page.evaluate(
     () => JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state,
   );
-  expect(saved.version).toBe(2);
+  expect(saved.version).toBe(3);
   expect(saved.days['2026-11-02'].waterMl).toBe(250);
   expect(saved.days['2026-11-02'].scheduleApproved).toBe(true);
   expect(saved.academicSchedules).toHaveLength(1);
@@ -452,5 +452,210 @@ test('overlapping weekly classes are rejected without saving partial edits', asy
       JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state.academicSchedules.length,
   );
   expect(count).toBe(0);
+  await expectNoHorizontalOverflow(page);
+});
+
+async function feature(page: Page, name: 'Spellbook' | 'Trials' | 'Reward') {
+  const direct = page.getByRole('button', { name, exact: true });
+  if (await direct.isVisible()) {
+    await direct.click();
+    return;
+  }
+  await page.getByRole('button', { name: 'Progres', exact: true }).click();
+  await page
+    .getByRole('button', {
+      name:
+        name === 'Spellbook' ? 'Spellbook & Bahasa' : name === 'Trials' ? 'Trial Gates' : 'Reward',
+      exact: true,
+    })
+    .click();
+}
+async function historyFixture(page: Page, date = '2026-11-20') {
+  await page.clock.install({ time: new Date(date + 'T08:00:00+07:00') });
+  const state = createState();
+  state.startedAt = addDays(date, -60);
+  state.pms = true;
+  for (let key = state.startedAt; key <= date; key = addDays(key, 1)) {
+    const log = emptyDay(true);
+    log.waterMl = 2000;
+    log.meals = [{ id: key, name: 'Catatan', calories: 650, time: '12:00' }];
+    log.cardio = {
+      activity: 'walk',
+      minutes: 30,
+      distanceKm: 2,
+      incline: null,
+      intensity: 'light',
+    };
+    log.completions = ['core', 'alternative'];
+    const type = gymType(state, key);
+    if (type)
+      log.gym = {
+        type,
+        minutes: 35,
+        exercises: [{ name: 'Latihan', sets: [{ reps: 10, weight: 5 }] }],
+        feeling: 'comfortable',
+      };
+    state.days[key] = log;
+  }
+  await page.addInitScript(
+    ({ state }) => {
+      if (!localStorage.getItem('iris:journey:v1:device'))
+        localStorage.setItem(
+          'iris:journey:v1:device',
+          JSON.stringify({ state, revision: null, dirty: true, savedAt: new Date().toISOString() }),
+        );
+    },
+    { state },
+  );
+  await page.goto('/');
+  await page.getByRole('heading', { name: /Daily Quests/ }).waitFor();
+  return state;
+}
+
+test('language setup creates every-other-day20+10minute quests and preserves the journal', async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date('2026-11-02T08:00:00+07:00') });
+  await startJourney(page);
+  await feature(page, 'Spellbook');
+  await page.getByLabel('Mulai belajar', { exact: true }).fill('2026-11-03');
+  await page.getByRole('button', { name: 'Aktifkan belajar bahasa', exact: true }).click();
+  await page.clock.setSystemTime(new Date('2026-11-03T08:00:00+07:00'));
+  await page.reload();
+  await page.getByRole('checkbox', { name: 'Belajar bahasa', exact: true }).click();
+  await page
+    .getByLabel('Error log IELTS', { exact: true })
+    .fill('Review paraphrase and listening distractors.');
+  await page.getByLabel('Catatan Jepang', { exact: true }).fill('あいうえおを練習しました');
+  await page.getByRole('button', { name: 'Simpan latihan bahasa', exact: true }).click();
+  await page.getByRole('button', { name: 'Tutup dialog', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Belajar bahasa', exact: true })).toBeChecked();
+  await expect(page.getByRole('progressbar', { name: 'EXP Hunter', exact: true })).toHaveAttribute(
+    'aria-valuenow',
+    '30',
+  );
+  await page.reload();
+  await expect(page.getByRole('checkbox', { name: 'Belajar bahasa', exact: true })).toBeChecked();
+  await feature(page, 'Spellbook');
+  await page
+    .getByRole('combobox', { name: 'Materi Jepang hari ini', exact: true })
+    .selectOption('0');
+  await expect(page.getByRole('heading', { name: 'Bunyi & Hiragana', exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});
+
+test('books create reading rewards and require a reflection plus application for completed spells', async ({
+  page,
+}) => {
+  await startJourney(page);
+  await feature(page, 'Spellbook');
+  await page.getByRole('button', { name: 'Buku · Spellbook', exact: true }).click();
+  await page.getByLabel('Judul buku', { exact: true }).fill('Learning Notes');
+  await page.getByLabel('Penulis', { exact: true }).fill('Iris');
+  await page.getByLabel('Total halaman', { exact: true }).fill('20');
+  await page.getByRole('button', { name: 'Tambahkan buku', exact: true }).click();
+  await page.getByLabel('Halaman dibaca sekarang', { exact: true }).fill('20');
+  await page
+    .getByLabel('Satu insight bacaan', { exact: true })
+    .fill('Practice with retrieval and reflection.');
+  await page.getByRole('button', { name: 'Simpan bacaan', exact: true }).click();
+  await page
+    .getByLabel('Tiga pelajaran utama', { exact: true })
+    .fill('Recall without notes, review mistakes, and repeat deliberately.');
+  await page
+    .getByLabel('Satu penerapan nyata yang sudah dicoba', { exact: true })
+    .fill('I reviewed yesterday’s vocabulary without opening the notes.');
+  await page.getByRole('button', { name: 'Selesaikan buku & catat skill', exact: true }).click();
+  const state = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state,
+  );
+  expect(state.adventure.books[0].finishedAt).toBeTruthy();
+  expect(state.adventure.readings).toHaveLength(1);
+  await page.getByRole('button', { name: 'Hari Ini', exact: true }).click();
+  await expect(
+    page.getByRole('checkbox', { name: 'Baca & catat buku', exact: true }),
+  ).toBeChecked();
+  await expect(page.getByRole('progressbar', { name: 'EXP Hunter', exact: true })).toHaveAttribute(
+    'aria-valuenow',
+    '15',
+  );
+  await expectNoHorizontalOverflow(page);
+});
+
+test('achievement currency is claimed once and a future Rest Day protects streak without XP inflation', async ({
+  page,
+}) => {
+  await historyFixture(page);
+  const before = await page
+    .getByRole('progressbar', { name: 'EXP Hunter', exact: true })
+    .getAttribute('aria-valuenow');
+  await feature(page, 'Reward');
+  await page.getByRole('button', { name: /^Klaim \d+ achievement/ }).click();
+  await expect(page.getByRole('button', { name: /^Klaim 0 achievement/ })).toBeDisabled();
+  await page.getByLabel('Tanggal Rest Day', { exact: true }).fill('2026-11-21');
+  await page.getByRole('button', { name: 'Tukar Rest Day', exact: true }).click();
+  await page.clock.setSystemTime(new Date('2026-11-21T08:00:00+07:00'));
+  await page.reload();
+  await expect(page.getByText('Rest Day aktif.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: 'EXP Hunter', exact: true })).toHaveAttribute(
+    'aria-valuenow',
+    before!,
+  );
+  const state = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state,
+  );
+  expect(state.adventure.redemptions).toHaveLength(1);
+  expect(state.adventure.redemptions[0].cost).toBe(100);
+  await expectNoHorizontalOverflow(page);
+});
+
+test('level trials open by prerequisites and record standalone non-stop evidence without replacing cardio', async ({
+  page,
+}) => {
+  await historyFixture(page);
+  await feature(page, 'Trials');
+  const trial = page
+    .getByRole('article')
+    .filter({ has: page.getByRole('heading', { name: 'First Kilometre', exact: true }) });
+  await trial.getByRole('button', { name: 'Ambil tantangan', exact: true }).click();
+  await trial.getByText('Catat percobaan khusus', { exact: false }).click();
+  await trial.getByLabel('Jarak aktual (km)', { exact: true }).fill('1.2');
+  await trial.getByLabel('Durasi percobaan (menit)', { exact: true }).fill('10');
+  await trial.getByLabel('Tanpa jeda pada percobaan ini', { exact: true }).check();
+  await trial.getByRole('button', { name: 'Simpan percobaan', exact: true }).click();
+  await expect(trial).toContainText('Selesai 2026-11-20');
+  const next = page
+    .getByRole('article')
+    .filter({ has: page.getByRole('heading', { name: 'Unbroken Current', exact: true }) });
+  await expect(next.getByRole('button', { name: 'Ambil tantangan', exact: true })).toBeEnabled();
+  const state = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state,
+  );
+  expect(state.days['2026-11-20'].cardio.activity).toBe('walk');
+  expect(state.adventure.trialAttempts['run-1'].continuous).toBe(true);
+  const future = page
+    .getByRole('article')
+    .filter({ has: page.getByRole('heading', { name: 'Five-K Tide', exact: true }) });
+  await expect(future.getByRole('button', { name: 'Belum terbuka', exact: true })).toBeDisabled();
+  await expectNoHorizontalOverflow(page);
+});
+
+test('monthly challenges allow a reading focus and retain its frozen type after reload', async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date('2026-11-01T08:00:00+07:00') });
+  await startJourney(page);
+  await page.getByRole('button', { name: /Challenge bulanan/ }).click();
+  await page.getByRole('button', { name: /Pilih Scholar/ }).click();
+  await expect(page.getByRole('heading', { name: 'Scholar’s Tide', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Tutup dialog', exact: true }).click();
+  await page.reload();
+  await page.getByRole('button', { name: /Challenge bulanan/ }).click();
+  await expect(page.getByRole('heading', { name: 'Scholar’s Tide', exact: true })).toBeVisible();
+  const state = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('iris:journey:v1:device')!).state,
+  );
+  expect(state.challenges['2026-11'].kind).toBe('reading');
+  expect(state.challenges['2026-11'].target).toBe(12);
   await expectNoHorizontalOverflow(page);
 });

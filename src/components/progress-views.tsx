@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 import { assetPath } from '@/lib/paths';
 
 import Image from 'next/image';
@@ -355,7 +357,11 @@ export function ProgressView({
   );
 }
 
-export function AchievementsView({ stats }: { stats: Stats }) {
+export function AchievementsView({ stats, onRewards }: { stats: Stats; onRewards?: () => void }) {
+  const [category, setCategory] = useState('Semua');
+  const [limit, setLimit] = useState(12);
+  const visible = stats.badges.filter((b) => category === 'Semua' || b.category === category);
+  const categories = [...new Set(stats.badges.map((b) => b.category).filter(Boolean))];
   const unlocked = stats.badges.filter((badge) => badge.unlocked).length;
   return (
     <div className="achievement-view">
@@ -369,8 +375,34 @@ export function AchievementsView({ stats }: { stats: Stats }) {
           <Trophy size={18} aria-hidden="true" /> {unlocked} / {stats.badges.length} terbuka
         </span>
       </header>
+      <div className="achievement-filters">
+        <label>
+          Kategori achievement
+          <select
+            value={category}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setLimit(12);
+            }}
+          >
+            <option>Semua</option>
+            {categories.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+        {onRewards && (
+          <button className="btn btn-secondary" onClick={onRewards}>
+            Klaim kristal di Reward
+          </button>
+        )}
+      </div>
+      <p className="muted">
+        80 milestone bertahap sampai 730 hari, 24 bulan, dan seterusnya. Hari aktif dihitung
+        kumulatif; tidak semua target memerlukan streak.
+      </p>
       <div className="achievement-grid">
-        {stats.badges.map((badge) => (
+        {visible.slice(0, limit).map((badge) => (
           <article
             key={badge.id}
             className={`panel achievement-card ${badge.unlocked ? 'is-unlocked' : 'is-locked'}`}
@@ -382,6 +414,7 @@ export function AchievementsView({ stats }: { stats: Stats }) {
             <BadgeArtwork badge={badge} />
             <h2>{badge.title}</h2>
             <p>{badge.description}</p>
+            <div className="achievement-reward">+{badge.reward ?? 0} Emerald Shards · sekali</div>
             <div className="achievement-card-progress">
               <Meter
                 value={badge.progress}
@@ -396,6 +429,14 @@ export function AchievementsView({ stats }: { stats: Stats }) {
           </article>
         ))}
       </div>
+      {visible.length > limit && (
+        <button
+          className="btn btn-secondary achievement-load-more"
+          onClick={() => setLimit((n) => n + 12)}
+        >
+          Tampilkan lebih banyak ({Math.min(limit, visible.length)} / {visible.length})
+        </button>
+      )}
       <p className="achievement-footnote">
         <Gem size={16} aria-hidden="true" /> Achievement dihitung dari perjalananmu. Tidak ada klaim
         hadiah berulang.

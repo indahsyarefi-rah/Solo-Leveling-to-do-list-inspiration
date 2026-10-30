@@ -1,10 +1,25 @@
 import {
+  emptyAdventure,
+  parseAdventure,
+  restDay,
+  studyDue,
+  studyComplete,
+  readingOn,
+  monthlyDates,
+  monthKind,
+  MONTHLY,
+  TRIALS,
+  trialFinishedAt,
+  longBadges,
+  type Adventure,
+  type MonthlyKind,
+} from './long-game';
+import {
   classesAt,
   parseAcademicConfig,
   type AcademicSchedule,
   type AcademicException,
 } from './academic';
-import { basePath } from './paths';
 
 /** Pure domain selectors. Rewards are derived from facts, never incremented counters. */
 export type Attribute = 'strength' | 'endurance' | 'discipline';
@@ -15,6 +30,7 @@ export interface CardioSession {
   distanceKm: number | null;
   incline: number | null;
   intensity: 'light' | 'medium' | 'hard';
+  continuous?: boolean;
 }
 export interface GymSet {
   reps: number;
@@ -41,7 +57,7 @@ export interface ScheduledItem {
   title: string;
   start: string;
   end: string;
-  kind: 'class' | 'gym' | 'cardio' | 'personal';
+  kind: 'class' | 'gym' | 'cardio' | 'personal' | 'study';
   locked: boolean;
 }
 export interface Settings {
@@ -64,14 +80,18 @@ export interface DayLog {
   cardioTargetMinutes: number;
 }
 export interface AppState {
-  version: 2;
+  version: 3;
+  adventure: Adventure;
   academicSchedules: AcademicSchedule[];
   academicExceptions: Record<string, AcademicException>;
   startedAt: string | null;
   pms: boolean;
   settings: Settings;
   days: Record<string, DayLog>;
-  challenges: Record<string, { target: number; joinedAt: string }>;
+  challenges: Record<
+    string,
+    { target: number; joinedAt: string; kind?: MonthlyKind; rewardXp?: number }
+  >;
 }
 export interface Quest {
   id: string;
@@ -82,12 +102,14 @@ export interface Quest {
   attributeXp: number;
   required: boolean;
   done: boolean;
-  kind: 'toggle' | 'cardio' | 'gym' | 'water' | 'nutrition';
+  kind: 'toggle' | 'cardio' | 'gym' | 'water' | 'nutrition' | 'language' | 'reading';
   progress: number;
   target: number;
   unit: string;
 }
 export interface Badge {
+  category?: string;
+  reward?: number;
   id: string;
   title: string;
   description: string;
@@ -146,6 +168,8 @@ const IDS = [
   'dhuha',
   'tahajud',
   'alternative',
+  'language',
+  'reading',
 ] as const;
 const ACTIVITIES = Object.keys(ACTIVITY_LABELS);
 const PRAYERS = [
@@ -201,7 +225,8 @@ export function dateDiff(start: string, end: string): number {
 
 export function createState(): AppState {
   return {
-    version: 2,
+    version: 3,
+    adventure: emptyAdventure(),
     academicSchedules: [],
     academicExceptions: {},
     startedAt: null,
@@ -423,6 +448,45 @@ export function getQuests(state: AppState, date: string): Quest[] {
     push('dhuha', 'Shalat Dhuha', 'Quest sunnah · opsional', 10, 'discipline', false);
     push('tahajud', 'Shalat Tahajud', 'Quest sunnah · opsional', 15, 'discipline', false);
   }
+  const study = state.adventure.studyLogs[date];
+  if (studyDue(state, date) || study)
+    push(
+      'language',
+      'Belajar bahasa',
+      'IELTS Academic 20 menit + Jepang 10 menit',
+      30,
+      'discipline',
+      studyDue(state, date),
+      'language',
+      Math.min(20, study?.ielts ?? 0) + Math.min(10, study?.japanese ?? 0),
+      30,
+      'menit',
+      studyComplete(state, date),
+    );
+  const reading = readingOn(state, date);
+  if (
+    state.adventure.books.some(
+      (b) => b.startedAt <= date && (!b.finishedAt || b.finishedAt >= date),
+    ) ||
+    reading.minutes > 0
+  )
+    push(
+      'reading',
+      'Baca & catat buku',
+      'Minimal 10 menit · isi Spellbook dengan pemahaman',
+      15,
+      'discipline',
+      false,
+      'reading',
+      reading.minutes,
+      10,
+      'menit',
+      reading.minutes >= 10 && reading.pages > 0,
+    );
+  if (restDay(state, date))
+    quests.forEach((q) => {
+      q.required = false;
+    });
   return quests;
 }
 
@@ -464,6 +528,12 @@ export function getStats(state: AppState, date: string): Stats {
       }
     }
   }
+  if (active) {
+    for (const key of Object.keys(state.adventure.studyLogs))
+      if (key >= since && key <= date) dates.add(key);
+    for (const r of state.adventure.readings)
+      if (r.date >= since && r.date <= date) dates.add(r.date);
+  }
   const sortedDates = [...dates].sort();
   let xp = 0;
   let completed = 0;
@@ -483,7 +553,14 @@ export function getStats(state: AppState, date: string): Stats {
       xp += 10;
       attributeXp.discipline += 5;
       if (day === date) todayXp += 10;
-      run = lastPerfect && dateDiff(lastPerfect, day) === 1 ? run + 1 : 1;
+      let uninterrupted = lastPerfect !== null;
+      if (lastPerfect)
+        for (let key = addDays(lastPerfect, 1); key < day; key = addDays(key, 1))
+          if (!restDay(state, key)) {
+            uninterrupted = false;
+            break;
+          }
+      run = uninterrupted ? run + 1 : 1;
       lastPerfect = day;
       bestStreak = Math.max(bestStreak, run);
     }
@@ -494,21 +571,11 @@ export function getStats(state: AppState, date: string): Stats {
   let monthlyCount = 0;
   let monthlyTarget = currentChallenge?.target ?? 12;
   let monthlyComplete = false;
-  let anyMonthlyComplete = false;
+  let completedMonths = 0;
   if (active) {
     for (const [month, challenge] of Object.entries(state.challenges)) {
       if (month > currentMonth || challenge.joinedAt > date) continue;
-      const sessions = Object.entries(state.days)
-        .filter(
-          ([day, log]) =>
-            day.slice(0, 7) === month &&
-            day >= since &&
-            day >= challenge.joinedAt &&
-            day <= date &&
-            Boolean(log.cardio && Number.isFinite(log.cardio.minutes) && log.cardio.minutes >= 30),
-        )
-        .map(([day]) => day)
-        .sort();
+      const sessions = monthlyDates(state, month, challenge, date);
       const complete = sessions.length >= challenge.target;
       if (month === currentMonth) {
         monthlyCount = sessions.length;
@@ -516,17 +583,24 @@ export function getStats(state: AppState, date: string): Stats {
         monthlyComplete = complete;
       }
       if (complete) {
-        xp += 200;
-        anyMonthlyComplete = true;
-        if (sessions[challenge.target - 1] === date) todayXp += 200;
+        const award = challenge.rewardXp ?? MONTHLY[monthKind(challenge)].xp;
+        xp += award;
+        completedMonths++;
+        if (sessions[challenge.target - 1] === date)
+          todayXp += challenge.rewardXp ?? MONTHLY[monthKind(challenge)].xp;
       }
     }
   }
 
   let streak = 0;
   if (active) {
-    let cursor = perfect(date) ? date : addDays(date, -1);
-    while (cursor >= since && perfect(cursor)) {
+    let cursor = perfect(date) || restDay(state, date) ? date : addDays(date, -1);
+    while (cursor >= since) {
+      if (restDay(state, cursor)) {
+        cursor = addDays(cursor, -1);
+        continue;
+      }
+      if (!perfect(cursor)) break;
       streak++;
       cursor = addDays(cursor, -1);
     }
@@ -537,6 +611,10 @@ export function getStats(state: AppState, date: string): Stats {
     if (active) {
       let cursor = date;
       while (cursor >= since) {
+        if (restDay(state, cursor)) {
+          cursor = addDays(cursor, -1);
+          continue;
+        }
         const quest = questsAt(cursor).find((item) => item.id === id);
         if (quest) {
           if (quest.done) count++;
@@ -548,23 +626,15 @@ export function getStats(state: AppState, date: string): Stats {
     habitStreaks[id] = count;
   }
 
+  if (active)
+    for (const trial of TRIALS) {
+      const finished = trialFinishedAt(state, trial.id, date);
+      if (finished) {
+        xp += trial.xp;
+        if (finished === date) todayXp += trial.xp;
+      }
+    }
   const requiredToday = active ? questsAt(date).filter((quest) => quest.required) : [];
-  const badge = (
-    id: string,
-    title: string,
-    description: string,
-    progress: number,
-    target: number,
-    unlocked = progress >= target,
-  ): Badge => ({
-    id,
-    title,
-    description,
-    progress,
-    target,
-    unlocked,
-    image: `${basePath}/assets/badges/${id}.png`,
-  });
   return {
     ...levelFor(xp),
     attributes: {
@@ -582,32 +652,11 @@ export function getStats(state: AppState, date: string): Stats {
     monthlyTarget,
     monthlyJoined: Boolean(currentChallenge && currentChallenge.joinedAt <= date),
     monthlyComplete,
-    badges: [
-      badge('first-ripple', 'First Ripple', 'Selesaikan quest pertamamu.', completed, 1),
-      badge(
-        'seven-day-current',
-        'Seven-Day Current',
-        'Tuntaskan seluruh quest wajib selama 7 hari berturut-turut.',
-        bestStreak,
-        7,
-      ),
-      badge(
-        'emerald-resolve',
-        'Emerald Resolve',
-        'Selesaikan 30 quest dalam perjalananmu.',
-        completed,
-        30,
-      ),
-      badge('tidekeeper', 'Tidekeeper', 'Selesaikan 100 quest dalam perjalananmu.', completed, 100),
-      badge(
-        'emerald-current',
-        'Emerald Current',
-        'Tuntaskan challenge cardio bulanan yang kamu ambil.',
-        anyMonthlyComplete ? monthlyTarget : monthlyCount,
-        monthlyTarget,
-        anyMonthlyComplete,
-      ),
-    ],
+    badges: longBadges(state, date, {
+      quests: completed,
+      streak: bestStreak,
+      months: completedMonths,
+    }),
   };
 }
 
@@ -631,7 +680,7 @@ export function validateState(input: unknown): AppState | null {
   try {
     if (
       !record(input) ||
-      (input.version !== 1 && input.version !== 2) ||
+      (input.version !== 1 && input.version !== 2 && input.version !== 3) ||
       !(input.startedAt === null || validDate(input.startedAt)) ||
       typeof input.pms !== 'boolean' ||
       !record(input.settings) ||
@@ -640,10 +689,13 @@ export function validateState(input: unknown): AppState | null {
     )
       return null;
     if (
-      input.version === 2 &&
+      (input.version === 2 || input.version === 3) &&
       (input.academicSchedules === undefined || input.academicExceptions === undefined)
     )
       return null;
+    if (input.version === 3 && input.adventure === undefined) return null;
+    const adventure = parseAdventure(input.adventure);
+    if (!adventure) return null;
     const academic = parseAcademicConfig(input);
     if (!academic) return null;
     const settings = input.settings;
@@ -662,7 +714,8 @@ export function validateState(input: unknown): AppState | null {
     if (Object.keys(input.days).length > 20_000 || Object.keys(input.challenges).length > 1200)
       return null;
     const state: AppState = {
-      version: 2,
+      version: 3,
+      adventure,
       ...academic,
       startedAt: input.startedAt,
       pms: input.pms,
@@ -721,7 +774,8 @@ export function validateState(input: unknown): AppState | null {
           !number(c.minutes, 1440) ||
           !(c.distanceKm === null || number(c.distanceKm, 1500)) ||
           !(c.incline === null || number(c.incline, 100)) ||
-          !['light', 'medium', 'hard'].includes(String(c.intensity))
+          !['light', 'medium', 'hard'].includes(String(c.intensity)) ||
+          (c.continuous !== undefined && typeof c.continuous !== 'boolean')
         )
           return null;
         log.cardio = {
@@ -730,6 +784,7 @@ export function validateState(input: unknown): AppState | null {
           distanceKm: c.distanceKm,
           incline: c.incline,
           intensity: c.intensity as CardioSession['intensity'],
+          ...(c.continuous !== undefined ? { continuous: c.continuous === true } : {}),
         };
       }
       if (value.gym !== null) {
@@ -774,7 +829,7 @@ export function validateState(input: unknown): AppState | null {
           !time(item.start) ||
           !time(item.end) ||
           clock(item.end) <= clock(item.start) ||
-          !['class', 'gym', 'cardio', 'personal'].includes(String(item.kind)) ||
+          !['class', 'gym', 'cardio', 'personal', 'study'].includes(String(item.kind)) ||
           typeof item.locked !== 'boolean' ||
           log.schedule.some((existing) => existing.id === item.id)
         )
@@ -805,10 +860,20 @@ export function validateState(input: unknown): AppState | null {
         value.target < 1 ||
         !Number.isInteger(value.target) ||
         !validDate(value.joinedAt) ||
-        value.joinedAt.slice(0, 7) !== month
+        value.joinedAt.slice(0, 7) !== month ||
+        (value.kind !== undefined && !Object.hasOwn(MONTHLY, String(value.kind))) ||
+        (value.rewardXp !== undefined &&
+          (!number(value.rewardXp, 1000) ||
+            value.rewardXp < 1 ||
+            !Number.isInteger(value.rewardXp)))
       )
         return null;
-      state.challenges[month] = { target: value.target, joinedAt: value.joinedAt };
+      state.challenges[month] = {
+        target: value.target,
+        joinedAt: value.joinedAt,
+        ...(value.kind !== undefined ? { kind: value.kind as MonthlyKind } : {}),
+        ...(value.rewardXp !== undefined ? { rewardXp: value.rewardXp as number } : {}),
+      };
     }
     return state;
   } catch {
@@ -915,6 +980,14 @@ export function proposeSchedule(
     const found = latest ? windows.at(-1) : windows[0];
     return found ? (latest ? found.end - duration : found.start) : null;
   };
+  if (restDay(state, date)) {
+    items.sort((a, b) => clock(a.start) - clock(b.start));
+    return {
+      items,
+      warning:
+        'Rest Day aktif. Usulan quest latihan/belajar dilewati; agenda yang sudah disetujui tetap perlu ditinjau sendiri.',
+    };
+  }
   const fasting = !getDay(state, date).pms && weekday >= 1 && weekday <= 5;
   const gym = gymType(state, date);
   let cardioScheduled = false;
@@ -967,6 +1040,12 @@ export function proposeSchedule(
         'cardio',
         false,
       );
+  }
+  if (studyDue(state, date)) {
+    const studyStart = slot(30, 18 * 60, sleep) ?? slot(30, wake, sleep);
+    if (studyStart === null)
+      warnings.push('Belajar bahasa 30 menit belum mendapat slot. Sesuaikan secara manual.');
+    else add('study', 'IELTS 20 + Jepang 10', studyStart, studyStart + 30, 'study', false);
   }
   items.sort((a, b) => clock(a.start) - clock(b.start));
   return { items, warning: warnings.length ? warnings.join(' ') : null };
