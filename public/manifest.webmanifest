@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "Iris — Emerald Tide",
+  "short_name": "Iris",
+  "description": "Daily quests, latihan, dan perjalanan Hunter pribadi Iris.",
+  "lang": "id",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071421",
+  "theme_color": "#071421",
+  "icons": [
+    {
+      "src": "/assets/brand/iris-crystal-emblem.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
